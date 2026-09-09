@@ -8,6 +8,8 @@ import {
   useEffect,
   useState,
 } from "react";
+import getAuthHeader from "../headers/auth-header";
+import { ActiveAccountCtx } from "./active-account-ctx";
 import ApiRoutes from "../../routing/api-routes";
 import Notification from "../notifications/notification";
 import { LanguageCtx } from "./language-ctx";
@@ -35,23 +37,26 @@ export const EventsCtxProvider: FC<PropsWithChildren> = ({ children }) => {
   const [events, setEvents] = useState<event[]>([]);
   const [eventMap, setEventMap] = useState(new Map<number, event>());
   const { institute } = useSelectedInstitute();
+  const { localAccount, loading: accountLoading } = useContext(ActiveAccountCtx);
   const { en } = useContext(LanguageCtx);
 
   const fetchAllEvents = useCallback(async () => {
-    if (!institute) {
+    if (!institute || accountLoading || !localAccount) {
       return [];
     }
 
     try {
       const queryParam = `?instituteId=${institute.urlIdentifier}`;
-      const res = await fetch(`${ApiRoutes.allEvents}${queryParam}`);
-      if (!res.ok) throw await res.text();
+      const headers = await getAuthHeader();
+      if (!headers) return [];
+      const res = await fetch(`${ApiRoutes.allEvents}${queryParam}`, { headers });
+      if (!res.ok) throw new Error(await res.text());
       return await res.json();
     } catch (e: any) {
-      new Notification().error(e.message);
+      new Notification().error(e instanceof Error ? e.message : String(e));
       return [];
     }
-  }, [institute]);
+  }, [institute, accountLoading, localAccount]);
 
   const getEvents = useCallback(async () => {
     const events = await fetchAllEvents();
