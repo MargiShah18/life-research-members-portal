@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReportPageRes } from "../pages/api/reporting/[instituteId]/[pageId]";
 import type { Lang, Selection } from "../reporting/metrics/types";
 import ApiRoutes from "../routing/api-routes";
@@ -38,20 +38,28 @@ export default function useReportPage({
   const [meta, setMeta] = useState<ReportPageRes["meta"] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const activeRequest = useRef<AbortController | null>(null);
 
   const { yearFrom, yearTo } = years;
   // Serialised so the effect re-runs on content change rather than array identity.
   const selectKey = selections.length ? JSON.stringify(selections) : "";
 
   const fetchPage = useCallback(async () => {
-    if (!pageId) return;
-    if (audience === "institute" && !urlIdentifier) return;
+    activeRequest.current?.abort();
+    const controller = new AbortController();
+    activeRequest.current = controller;
+    const { signal } = controller;
+    if (!pageId || (audience === "institute" && !urlIdentifier)) {
+      setLoading(false);
+      return;
+    }
 
     try {
       setLoading(true);
       setError(null);
 
       const headers = await getAuthHeader();
+      if (signal.aborted) return;
       if (!headers) {
         setError("Not signed in.");
         return;
@@ -69,24 +77,27 @@ export default function useReportPage({
           ? ApiRoutes.adminReportPage(pageId, q)
           : ApiRoutes.reportPage(urlIdentifier!, pageId, q);
 
-      const res = await fetch(url, { headers });
+      const res = await fetch(url, { headers, signal });
       if (!res.ok) {
-        setError(await res.text());
+        const message = await res.text();
+        if (!signal.aborted) setError(message);
         return;
       }
       const body: ReportPageRes = await res.json();
+      if (signal.aborted) return;
       setData(body.data);
       setMeta(body.meta);
     } catch (e: any) {
-      setError(e.message);
+      if (!signal.aborted) setError(e.message);
     } finally {
-      setLoading(false);
+      if (!signal.aborted) setLoading(false);
     }
     // lang is a dependency: toggling FR must refetch, since the labels come from the server.
   }, [audience, urlIdentifier, pageId, yearFrom, yearTo, selectKey, lang]);
 
   useEffect(() => {
     fetchPage();
+    return () => activeRequest.current?.abort();
   }, [fetchPage]);
 
   return { data, meta, loading, error, refetch: fetchPage };

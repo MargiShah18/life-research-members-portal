@@ -169,7 +169,7 @@ function grantMilestoneCount(
     title,
     run: async ({ instituteId, filters }) => ({
       value: await db.grant.count({
-        where: { ...grantWhere(instituteId, filters), [column]: { not: null } },
+        where: { AND: [grantWhere(instituteId, filters), { [column]: { not: null } }] },
       }),
     }),
   });

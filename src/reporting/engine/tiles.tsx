@@ -201,7 +201,7 @@ export function BarTile({
         >
           {rows.map((row) => (
             <Cell
-              key={row.label}
+              key={row.key === undefined ? row.label : JSON.stringify(row.key)}
               opacity={markOpacity(hasSelection ? row.key === selectedKey : undefined)}
             />
           ))}

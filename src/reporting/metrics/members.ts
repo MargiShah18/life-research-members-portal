@@ -34,15 +34,22 @@ function memberSelections(filters: MetricFilters): Prisma.memberWhereInput {
 
   const location = selected(filters, "member.location");
   if (location !== undefined) {
-    // The location dimension is a composite label ("Ottawa, Canada"), so its key is the same
-    // string and has to be split back apart. A blank means neither column was set.
+    // Keep the nullable city/country pair separate from its display label. A label alone
+    // cannot distinguish a country-only location from a city-only location.
     if (location === null) {
       where.city = null;
       where.country = null;
     } else {
-      const [city, country] = String(location).split(", ");
-      where.city = city ?? null;
-      where.country = country ?? null;
+      try {
+        const pair: unknown = JSON.parse(String(location));
+        if (Array.isArray(pair) && pair.length === 2 &&
+            pair.every((value) => value === null || typeof value === "string")) {
+          where.city = pair[0];
+          where.country = pair[1];
+        }
+      } catch {
+        // Ignore malformed selections, matching the report API's parsing policy.
+      }
     }
   }
 
@@ -162,17 +169,11 @@ export const membersByLocation = defineMetric({
     // City and country are free text in RIMS, not lookup tables, so there is no name_fr to use
     // here -- the label is whatever was typed in.
     const blank = blankLabel(lang);
-    const counts = new Map<string, number>();
-    for (const r of rows) {
-      const label = [r.city, r.country].filter(Boolean).join(", ") || blank;
-      counts.set(label, (counts.get(label) ?? 0) + r._count._all);
-    }
-    return [...counts.entries()]
-      .map(([label, value]) => ({
-        label,
-        value,
-        // Composite dimension: the label IS the key, and memberSelections splits it back.
-        key: label === blank ? null : label,
+    return rows
+      .map((r) => ({
+        label: [r.city, r.country].filter(Boolean).join(", ") || blank,
+        value: r._count._all,
+        key: r.city === null && r.country === null ? null : JSON.stringify([r.city, r.country]),
       }))
       .sort((a, b) => b.value - a.value || a.label.localeCompare(b.label, lang));
   },
